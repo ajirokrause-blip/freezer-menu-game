@@ -1114,6 +1114,34 @@ body.is-dragging .food-name {
   }
 }
 
+/* Touch devices only: keep drags from scrolling the page, pulling to refresh,
+   or popping the iOS long-press image menu. Desktop is unaffected. */
+@media (hover: none) and (pointer: coarse) {
+  html,
+  body {
+    overscroll-behavior: none;
+    -webkit-touch-callout: none;
+  }
+
+  .stage {
+    touch-action: none;
+    -webkit-touch-callout: none;
+  }
+
+  .pixel,
+  .food-tile,
+  .pile-tile,
+  .rack-tile,
+  .ware-item,
+  .vessel,
+  .rail-icon,
+  img {
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+    user-drag: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .void-hint,
   .void-hint.is-leaving,

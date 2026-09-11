@@ -55,6 +55,12 @@ import {
 const uid = () => Math.random().toString(36).slice(2, 9);
 const RAIL_MIN_X = 98;
 
+// Primary input is touch (phones/tablets). Desktop keeps hover-to-open untouched.
+const IS_TOUCH =
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+
 function useRotatingLine() {
   const index = useRef({});
   return (key) => {
@@ -237,6 +243,19 @@ export default function App() {
     const already = activePanelRef.current === id;
     setPanel(id);
     if (already) cueHover();
+  }
+
+  // Touch: tap an icon to open its panel; tap the same icon again to close it.
+  function toggleStation(id) {
+    if (cookingIdRef.current) return;
+    if (activePanelRef.current === id) {
+      clearTimeout(closeTimer.current);
+      playPanelClose();
+      activePanelRef.current = null;
+      setActivePanel(null);
+      return;
+    }
+    setPanel(id);
   }
 
   function leavePanel(id) {
@@ -959,6 +978,21 @@ export default function App() {
     }
   }, [vessels.length]);
 
+  // Touch: tapping anywhere outside the rail closes an open panel.
+  useEffect(() => {
+    if (!IS_TOUCH) return;
+    const onDocClick = (e) => {
+      if (cookingIdRef.current) return;
+      if (!activePanelRef.current) return;
+      if (e.target.closest?.(".rail")) return;
+      playPanelClose();
+      activePanelRef.current = null;
+      setActivePanel(null);
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, []);
+
   function onTileNewDown(e, item) {
     e.preventDefault();
     e.stopPropagation();
@@ -1148,6 +1182,7 @@ export default function App() {
         <div
           className="rail-stack"
           onPointerLeave={() => {
+            if (IS_TOUCH) return;
             if (openPanel) leavePanel(openPanel);
           }}
         >
@@ -1156,6 +1191,7 @@ export default function App() {
             label="chinaware"
             open={openPanel === "chinaware"}
             onEnter={() => enterStation("chinaware")}
+            onToggle={() => toggleStation("chinaware")}
             onIconEnter={cueHover}
             icon={<IconChinaware />}
           >
@@ -1184,6 +1220,7 @@ export default function App() {
             label="freezer"
             open={openPanel === "freezer"}
             onEnter={() => enterStation("freezer")}
+            onToggle={() => toggleStation("freezer")}
             onIconEnter={cueHover}
             onIconClick={onLockedFreezerIcon}
             icon={<IconFreezer />}
@@ -1250,6 +1287,7 @@ export default function App() {
             label="microwave"
             open={openPanel === "microwave"}
             onEnter={() => enterStation("microwave")}
+            onToggle={() => toggleStation("microwave")}
             onIconEnter={cueHover}
             onIconClick={onLockedMicrowaveIcon}
             drop="microwave-icon"
@@ -1417,6 +1455,7 @@ function RailItem({
   label,
   open,
   onEnter,
+  onToggle,
   onIconEnter,
   onIconClick,
   drop,
@@ -1427,15 +1466,18 @@ function RailItem({
     <div
       className={`rail-item ${open ? "is-open" : ""}`}
       data-station={id}
-      onPointerEnter={onEnter}
+      onPointerEnter={IS_TOUCH ? undefined : onEnter}
     >
       <div
         className={`rail-icon ${open ? "is-open" : ""}`}
         data-drop={drop}
         role="img"
         aria-label={label}
-        onPointerEnter={onIconEnter}
-        onClick={onIconClick}
+        onPointerEnter={IS_TOUCH ? undefined : onIconEnter}
+        onClick={(e) => {
+          if (IS_TOUCH) onToggle?.(e);
+          onIconClick?.(e);
+        }}
       >
         {icon}
       </div>

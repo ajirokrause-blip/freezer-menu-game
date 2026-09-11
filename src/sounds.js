@@ -17,6 +17,15 @@ import warmUrl from "./assets/sounds/warm.wav";
 
 const MUTE_KEY = "the-freezer-muted";
 
+// iOS/Safari ignores HTMLAudioElement.volume, so on touch devices the music bed
+// would blast at full volume while the foley (WebAudio) stays quiet. On touch we
+// route the bed through the WebAudio graph so its low level actually applies.
+// Desktop keeps the plain element-volume path untouched.
+const IS_TOUCH_DEVICE =
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+
 const FOLEY = {
   "door-open": doorOpenUrl,
   "door-close": doorCloseUrl,
@@ -43,7 +52,8 @@ let muted = readMute();
 const buffers = {};
 let loading;
 let bed;
-let bedStarting = false;
+let musicGain = null;
+let bedRouted = false;
 const BED_KEY = "__theFreezerBed";
 const DRAG_KEY = "__theFreezerDrag";
 const DRAG_FADE_IN = 0.04;
@@ -111,7 +121,38 @@ function ensureBed() {
 function applyBedMute() {
   if (!bed) return;
   bed.muted = muted;
-  bed.volume = muted ? 0 : SOUND.music;
+  if (musicGain) {
+    // Routed through WebAudio (touch): the graph gain sets the level, since the
+    // element's own volume is ignored on iOS.
+    bed.volume = 1;
+    musicGain.gain.value = muted ? 0 : SOUND.music;
+  } else {
+    bed.volume = muted ? 0 : SOUND.music;
+  }
+}
+
+// Touch only: pipe the bed element through a gain node so its volume is real on
+// iOS. Routed straight to the destination (not through `master`) so the music /
+// foley balance matches the desktop mix exactly.
+function routeBed() {
+  if (!IS_TOUCH_DEVICE || bedRouted || !ctx || !bed) return;
+  if (bed.__freezerRouted) {
+    bedRouted = true;
+    return;
+  }
+  try {
+    const source = ctx.createMediaElementSource(bed);
+    musicGain = ctx.createGain();
+    musicGain.gain.value = muted ? 0 : SOUND.music;
+    source.connect(musicGain);
+    musicGain.connect(ctx.destination);
+    bed.__freezerRouted = true;
+    bedRouted = true;
+    applyBedMute();
+  } catch {
+    // Routing unsupported — fall back to plain element volume.
+    musicGain = null;
+  }
 }
 
 function bedIsPlaying() {
@@ -121,24 +162,22 @@ function bedIsPlaying() {
 export function startBed() {
   if (muted) {
     if (bed && !bed.paused) bed.pause();
-    bedStarting = false;
     return;
   }
   const el = ensureBed();
   el.loop = true;
+  routeBed();
   applyBedMute();
-  if (bedIsPlaying() || bedStarting) return;
-  bedStarting = true;
+  if (bedIsPlaying()) return;
+  // Browsers block audio until a user gesture; an early (blocked) attempt used
+  // to leave a "starting" flag stuck, which swallowed the first real tap. We now
+  // just retry on every call — the first genuine gesture starts it cleanly.
   const pending = el.play();
   if (pending && typeof pending.then === "function") {
-    pending.then(() => {
-      bedStarting = false;
-    }).catch(() => {
-      bedStarting = false;
+    pending.catch(() => {
+      /* blocked until the next user gesture — startBed will run again then */
     });
-    return;
   }
-  bedStarting = false;
 }
 
 export function unlockSound() {
